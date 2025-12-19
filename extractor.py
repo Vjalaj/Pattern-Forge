@@ -90,7 +90,7 @@ def parse_pages_spec(spec: str, n_pages: int):
 
 # -------- Extraction logic (text PDF) --------
 
-def extract_table_from_words(words, y_tol=5, x_eps=20):
+def extract_table_from_words(words, y_tol=5, x_gap=50):
     """Take a list of words (dicts with x0,x1,top,bottom,text) and return a DataFrame."""
     if not words:
         return pd.DataFrame()
@@ -112,42 +112,28 @@ def extract_table_from_words(words, y_tol=5, x_eps=20):
     if cur_row:
         rows.append(cur_row)
 
-    # collect x-centers
-    centers = np.array([((w["x0"] + w["x1"]) / 2.0) for r in rows for w in r]).reshape(-1, 1)
-    if len(centers) == 0:
-        return pd.DataFrame()
-    if len(centers) == 1:
-        labels = np.array([0])
-        n_cols = 1
-    else:
-        clustering = DBSCAN(eps=x_eps, min_samples=1).fit(centers)
-        labels = clustering.labels_
-        n_cols = labels.max() + 1
+    # Detect columns by finding gaps in x positions
+    all_x0 = sorted(set(w["x0"] for r in rows for w in r))
+    boundaries = [0]
+    for i in range(1, len(all_x0)):
+        if all_x0[i] - all_x0[i-1] > x_gap:
+            boundaries.append(all_x0[i])
+    boundaries.append(float('inf'))
+    n_cols = len(boundaries) - 1
 
-    # build cluster medians for ordering
-    cluster_xs = defaultdict(list)
-    idx = 0
-    for r in rows:
-        for w in r:
-            cx = (w["x0"] + w["x1"]) / 2.0
-            cluster_xs[labels[idx]].append(cx)
-            idx += 1
-    col_order = sorted(cluster_xs.keys(), key=lambda k: np.median(cluster_xs[k]))
-
-    # assemble rows
+    # For each row, assign words to columns
     table_rows = []
     for r in rows:
-        tokens = sorted(r, key=lambda w: w["x0"])  # left-to-right
         row_cells = [""] * n_cols
-        for w in tokens:
-            cx = (w["x0"] + w["x1"]) / 2.0
-            distances = [abs(cx - np.median(cluster_xs[c])) for c in col_order]
-            col_idx = col_order[int(np.argmin(distances))]
-            text = w.get("text", "").strip()
-            existing = row_cells[col_idx]
-            row_cells[col_idx] = (existing + " " + text).strip() if existing else text
-        ordered = [row_cells[i] for i in col_order]
-        table_rows.append(ordered)
+        for w in r:
+            x0 = w["x0"]
+            for i in range(n_cols):
+                if boundaries[i] <= x0 < boundaries[i+1]:
+                    text = w.get("text", "").strip()
+                    existing = row_cells[i]
+                    row_cells[i] = (existing + " " + text).strip() if existing else text
+                    break
+        table_rows.append(row_cells)
 
     max_cols = max(len(r) for r in table_rows) if table_rows else 0
     normalized = [row + [""] * (max_cols - len(row)) for row in table_rows]
@@ -214,15 +200,26 @@ def process_pdf_file(path: Path, pages, out_dir: Path, options):
         image_path = images_out / image_name
         if pil_img is not None:
             pil_img.save(str(image_path))
+            page_image_path = str(image_path)
+        else:
+            page_image_path = None
 
         # try pdfplumber text extraction
         df = None
         if plumb is not None:
             try:
                 page = plumb.pages[pidx]
-                words = page.extract_words(extra_attrs=["size"])  # x0,x1,top,bottom,text
-                if words:
-                    df = extract_table_from_words(words, y_tol=options.get("y_tol", 5), x_eps=options.get("x_eps", 20))
+                # First try built-in table extraction
+                tables = page.extract_tables()
+                if tables:
+                    # Assume the first table is the main one
+                    table = tables[0]
+                    df = pd.DataFrame(table)
+                else:
+                    # Fallback to heuristic
+                    words = page.extract_words(extra_attrs=["size"])
+                    if words:
+                        df = extract_table_from_words(words, y_tol=options.get("y_tol", 5), x_gap=options.get("x_gap", 50))
             except Exception:
                 df = None
 
@@ -243,11 +240,11 @@ def process_pdf_file(path: Path, pages, out_dir: Path, options):
                 h = data["height"][i]
                 conf = float(data.get("conf", [])[i]) if "conf" in data and data.get("conf") else None
                 words.append({"text": txt, "x0": x, "x1": x + w, "top": y, "bottom": y + h, "conf": conf})
-            df = extract_table_from_words(words, y_tol=options.get("y_tol", 8), x_eps=options.get("x_eps", 25))
+            df = extract_table_from_words(words, y_tol=options.get("y_tol", 8), x_gap=options.get("x_gap", 50))
 
         # add page image path column to df (if not empty)
-        if df is not None and not df.empty:
-            df.insert(0, "page_image", str(image_path))
+        if df is not None and not df.empty and page_image_path is not None:
+            df.insert(0, "page_image", page_image_path)
 
         # save CSV per page
         out_csv = out_dir / f"{basename}_page{pidx + 1}.csv"
@@ -257,6 +254,19 @@ def process_pdf_file(path: Path, pages, out_dir: Path, options):
             print(f"Saved CSV: {out_csv}")
         else:
             print(f"No table found on page {pidx + 1}")
+
+        # extract embedded images
+        if plumb is not None:
+            try:
+                page = plumb.pages[pidx]
+                for img_idx, img in enumerate(page.images):
+                    img_name = f"{basename}_page{pidx + 1}_img{img_idx}.png"
+                    img_path = images_out / img_name
+                    with open(str(img_path), 'wb') as f:
+                        f.write(img['stream'].get_data())
+                    print(f"Saved embedded image: {img_path}")
+            except Exception as e:
+                print(f"Warning: could not extract embedded images: {e}")
 
     # close pdfplumber
     if plumb is not None:
@@ -294,7 +304,7 @@ def process_image_file(path: Path, pages, out_dir: Path, options):
         h = data["height"][i]
         conf = float(data.get("conf", [])[i]) if "conf" in data and data.get("conf") else None
         words.append({"text": txt, "x0": x, "x1": x + w, "top": y, "bottom": y + h, "conf": conf})
-    df = extract_table_from_words(words, y_tol=options.get("y_tol", 8), x_eps=options.get("x_eps", 25))
+    df = extract_table_from_words(words, y_tol=options.get("y_tol", 8), x_gap=options.get("x_gap", 50))
     if df is not None and not df.empty:
         df.insert(0, "page_image", str(image_path))
         out_csv = out_dir / f"{basename}.csv"
@@ -319,7 +329,7 @@ def main():
     parser.add_argument("--poppler-path", default=None, help="Optional path to poppler bin (Windows)")
     parser.add_argument("--tesseract-path", default=None, help="Optional path to tesseract exe (Windows)")
     parser.add_argument("--y-tol", type=float, default=6.0)
-    parser.add_argument("--x-eps", type=float, default=25.0)
+    parser.add_argument("--x-gap", type=float, default=50.0)
     args = parser.parse_args()
 
     input_dir = Path(args.input_dir)
@@ -370,7 +380,7 @@ def main():
     else:
         pages = [0]
 
-    options = {"dpi": args.dpi, "poppler_path": args.poppler_path, "y_tol": args.y_tol, "x_eps": args.x_eps}
+    options = {"dpi": args.dpi, "poppler_path": args.poppler_path, "y_tol": args.y_tol, "x_gap": args.x_gap}
 
     # process
     if input_path.suffix.lower() == ".pdf":
@@ -378,7 +388,10 @@ def main():
     else:
         process_image_file(input_path, pages, out_dir, options)
 
-    print("Done.")
+    print("Extraction complete. Starting web UI...")
+    import subprocess
+    import sys
+    subprocess.Popen([sys.executable, 'web_ui.py'])
 
 
 if __name__ == '__main__':

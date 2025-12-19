@@ -1,55 +1,82 @@
-# Table & OCR Extractor
+# PDF Table Extractor: Because Who Has Time for Manual Copy-Paste?
 
-This repository provides a single Python script `extractor.py` to extract table-like
-information from PDFs and images (e.g., medical blood test reports) when the table
-has no strict Excel-style gridlines.
+Ever stared at a PDF with a table that's sneakier than a cat burglar? This tool extracts tabular data from PDFs and images like a boss, using OCR when needed. Built with love, frustration, and way too many Stack Overflow tabs.
 
-Features
-- Uses `pdfplumber` for text PDFs; falls back to Tesseract OCR (`pytesseract`) for scanned pages.
-- Groups text tokens into rows by vertical proximity and clusters x-centers into inferred columns.
-- Saves per-page CSVs and a combined CSV per PDF; saves page images under `output/images/`.
-- Preserves page images and includes the page image path in CSV rows.
+I used AI, Google, and YouTube to cobble this together, and I'm only uploading to GitHub months later to clean up the mess. Enjoy!
 
-Quick Setup (Windows example)
-1. Clone the repo:
+## Features
+- Extracts tables from text PDFs using `pdfplumber` (fast and accurate).
+- Falls back to Tesseract OCR for scanned PDFs or images.
+- Heuristic clustering to infer columns from unstructured layouts.
+- Saves CSVs per page + combined, plus embedded/page images.
+- Web UI for easy review and extraction (no more command-line nightmares).
+- Auto-starts the web UI after extraction—because laziness is a feature.
 
-```powershell
-git clone https://github.com/Vjalaj/Pattern-Forge.git
-cd Pattern_Forge
+## Quick Setup (Windows, because why not?)
+1. Clone this repo (or don't, I'm not your boss):
+   ```powershell
+   git clone https://github.com/Vjalaj/Pattern-Forge.git
+   cd Pattern_Forge
+   ```
+
+2. Create and activate a virtual environment:
+   ```powershell
+   python -m venv venv
+   .\venv\Scripts\Activate.ps1
+   pip install -r requirements.txt
+   ```
+
+3. Install system deps (don't skip, or it'll cry):
+   - **Tesseract OCR**: Download from [here](https://github.com/tesseract-ocr/tesseract), install, and add `C:\Program Files\Tesseract-OCR` to PATH.
+   - **Poppler** (for PDF images): Grab Windows binaries and add `poppler\bin` to PATH.
+
+4. Drop your PDFs/images into `input_files/`.
+
+## Usage
+- **Command-line** (for the brave):
+  ```powershell
+  python extractor.py --input input_files\your_file.pdf --pages "1,3-5"
+  ```
+  It extracts and auto-launches the web UI at http://localhost:5000.
+
+- **Web UI** (the fun way):
+  ```powershell
+  python web_ui.py
+  ```
+  Select file, pages, extract. View CSVs as tables, download images. Boom!
+
+## Output
+- `output/*.csv`: Per-page and combined CSVs.
+- `output/images/`: Page renders and extracted embedded images.
+- CSVs include `page_image` column linking to saved images.
+
+## Tips & Tricks
+- Tune `x_eps` (default 10) for column detection—lower for tighter tables.
+- For medical reports, add validation rules post-extraction.
+- If tables are wonky, try advanced models like CascadeTabNet.
+- Confidence filtering: OCR results have confidences; filter low ones.
+
+## Requirements
+See `requirements.txt`. Needs Python 3.8+, Flask for UI, etc.
+
+## Contributing
+PRs welcome, but don't break it. I used AI to build this, so bugs are expected.
+
+## License
+MIT, because sharing is caring. Use at your own risk—I'm not liable if your PDF explodes.
 ```
 
-2. Create and activate a venv (Windows PowerShell):
+Review Results
+- Run the web UI to review CSVs and images, and to extract new files:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python web_ui.py
 ```
 
-3. Install system dependencies:
-- Tesseract OCR: https://github.com/tesseract-ocr/tesseract
-  - On Windows, install the installer and add `C:\Program Files\Tesseract-OCR` to PATH.
-- Poppler (for `pdf2image`): download Windows binaries and add `poppler\bin` to PATH.
-
-4. Place your PDF(s) or image(s) into the `input_files/` folder.
-
-Usage
-- Interactive (recommended):
-
-```powershell
-python extractor.py
-```
-
-The script will list files in `input_files/` and prompt you to choose one and the pages to extract.
-
-- Command-line:
-
-```powershell
-python extractor.py --input input_files\report.pdf --pages "1,3,5-7" --output output --dpi 300 --poppler-path "C:\path\to\poppler\bin" --tesseract-path "C:\Program Files\Tesseract-OCR\tesseract.exe"
-```
+Then open http://localhost:5000 in your browser. Select a PDF from the dropdown, enter pages, and click Extract. View the resulting CSVs as tables and downloaded images.
 
 Notes & Tips
-- Tune tolerances: `y_tol` and `x_eps` depend on PDF resolution and font sizes; test visually.
+- Tune tolerances: `y_tol` and `x_eps` depend on PDF resolution and font sizes; test visually. For multi-column tables, try smaller `x_eps` (e.g., 10-15) to detect more columns.
 - Header detection: detect a header row (e.g., bigger font) to set column names.
 - Post-processing: regex-based normalization for numeric fields, units, and merging broken cells.
 - Use layout models: if heuristics fail, use specialized table-detection models (CascadeTabNet, TableNet, TableFormer) to detect cell polygons, then OCR each cell.

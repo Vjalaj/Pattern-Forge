@@ -52,10 +52,34 @@ output/images/
 
 # OS files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+*.stackdump
 
 # Secrets
 *.pem
 *.key
 .env.local
 .env.*
+secrets.json
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Git
+.git/
+.gitignore~
+
+# IDEs additional
+*.swp
+*.swo
+*~
