@@ -46,9 +46,9 @@ venv.bak/
 .ipynb_checkpoints
 
 # Output and inputs
-output/
-input_files/
-output/images/
+#output/
+#input_files/
+#output/images/
 
 # OS files
 .DS_Store
