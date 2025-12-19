@@ -14,7 +14,7 @@ Quick Setup (Windows example)
 1. Clone the repo:
 
 ```powershell
-git clone <your-repo-url>
+git clone https://github.com/Vjalaj/Pattern-Forge.git
 cd Pattern_Forge
 ```
 
