@@ -1,0 +1,7 @@
+pdfplumber
+pandas
+scikit-learn
+pillow
+pdf2image
+pytesseract
+numpy
